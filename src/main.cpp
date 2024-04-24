@@ -3,16 +3,22 @@
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <esp_sleep.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
 
-#define SERVICE_UUID        "4fafc101-1fb5-459e-8fcc-c5c9c331914b"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define SERVICE_UUID        "b7ff2233-3c43-44da-ac1d-fa3075fa3ebc"
+#define CHARACTERISTIC_UUID "499d1e04-4a8b-4767-abe9-1bab1a5f4353"
 #define MENU_BUTTON D2
 #define POWER_BUTTON D0
-#define MAX_DATA 5
+#define MAX_DATA 4
 #define MAX_DATA_LEN 10
+
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 /*
   Flags
@@ -137,6 +143,8 @@ void initBLE()
 }
 
 void setup() {
+  lcd.init();                      // initialize the lcd 
+  lcd.backlight();
   /*
     Fresh start is used to initialize the array only once
   */
@@ -181,6 +189,48 @@ void printContents()
   }
 }
 
+void sleepHandler()
+{
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Powering Off");
+  Serial.println("Powering Off");
+  delay(500);
+  lcd.print(".");
+  delay(1000);
+  lcd.print(".");
+  delay(1000);
+  lcd.print(".");
+  lcd.noBacklight();
+  gpio_wakeup_enable(GPIO_NUM_2, GPIO_INTR_HIGH_LEVEL);
+  esp_sleep_enable_gpio_wakeup();
+  delay(500);
+  Serial.flush();
+  esp_light_sleep_start();
+}
+
+void wakeupHandler()
+{
+  lcd.clear();
+  gpio_wakeup_disable(GPIO_NUM_2);
+  HOME = true;
+  MENU = false;
+  POWER = false;
+  lcd.setCursor(0, 0);
+  lcd.print("Powering On");
+  lcd.backlight();
+  delay(500);
+  lcd.print(".");
+  delay(1000);
+  lcd.print(".");
+  delay(1000);
+  lcd.print(".");
+  lcd.clear();
+  // lcd.noBacklight();
+  initBLE();
+  attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, FALLING);
+}
+
 
 /*
   Debug, was used to confirm contents of the array
@@ -208,33 +258,39 @@ void loop()
   }
   else if(POWER)
   {
-    Serial.println("POWER Off");
-    gpio_wakeup_enable(GPIO_NUM_2, GPIO_INTR_HIGH_LEVEL);
-    esp_sleep_enable_gpio_wakeup();
-    delay(500);
-    Serial.flush();
-    esp_light_sleep_start();
-    
-    gpio_wakeup_disable(GPIO_NUM_2);
-    HOME = true;
-    MENU = false;
-    POWER = false;
-    initBLE();
-    attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, FALLING);
+    sleepHandler();
+    wakeupHandler();
   }
   else if(HOME)
   {
+    // lcd.clear();
+    // lcd.print("HOME Screen");
     Serial.println("HOME Screen");
     if(data_index > 0)
     {
+      // lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Latest Reading:");
       Serial.print("Recent Value: ");
+      lcd.setCursor(0, 1);
       for(int i = 0; i < MAX_DATA_LEN; i++)
       {
         if(data[data_index-1][i] != '-')
+        {
+          lcd.write(data[data_index-1][i]);
           Serial.print(data[data_index-1][i]);
+
+        }
       }
+      lcd.print(" mg/dL");
       Serial.println();
 
+    }
+    else
+    {
+      lcd.setCursor(0, 0);
+      lcd.print("Waiting");
+      Serial.println("No Data");
     }
     delay(500);
   }

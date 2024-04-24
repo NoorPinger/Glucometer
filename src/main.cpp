@@ -12,14 +12,23 @@
 #define PB1 D2
 #define POWER_BUTTON D0
 
-bool menu = false;
-bool home = true;
-bool freshStart = true;
-bool shiftFlag = false;
-bool power = false;
+/*
+  Flags
+*/
+bool MENU = false;
+bool HOME = true;
+bool FRESH_START = true;
+bool SHIFT_FLAG = false;
+bool POWER = false;
+
+/*
+  Array to store the data
+*/
 char data[5][10];
 int data_index = 0;
 
+
+// This function initializes the array with '-' so we have a way to check if data exists or not
 void initCharArray()
 {
   for(int i = 0; i < 5; i++)
@@ -67,15 +76,15 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 };
 
 void pb1pressed() {
-  menu ^= true;
-  home = !menu;
+  MENU ^= true;
+  HOME = !MENU;
 }
 
 void powerPressed() {
   detachInterrupt(digitalPinToInterrupt(POWER_BUTTON));
-  power = true;
-  menu = false;
-  home = false;
+  POWER = true;
+  MENU = false;
+  HOME = false;
 }
 
 void initBLE()
@@ -100,10 +109,10 @@ void initBLE()
   pAdvertising->start();
 }
 void setup() {
-  if(freshStart)
+  if(FRESH_START)
   {
     initCharArray();
-    freshStart = false;
+    FRESH_START = false;
   }
   pinMode(PB1, INPUT_PULLUP);
   pinMode(POWER_BUTTON, INPUT_PULLDOWN);
@@ -120,8 +129,8 @@ void printContents()
   uint8_t i,j = 0;
   for(int i = 0; i < 5; i++)
   {
-    if(data[i][j] != '-')
-    {
+    // if(data[i][j] != '-')
+    // {
       Serial.printf("[%d]: ", i+1);
       for(j = 0; j < 10; j++)
       {
@@ -129,7 +138,7 @@ void printContents()
           Serial.print(data[i][j]);
       }
       Serial.println();
-    }
+    // }
   }
 }
 
@@ -149,14 +158,14 @@ void printArray()
 
 void loop() 
 {
-  if(menu)
+  if(MENU)
   {
     printContents();
     delay(500);
   }
-  else if(power)
+  else if(POWER)
   {
-    Serial.println("Power Off");
+    Serial.println("POWER Off");
     gpio_wakeup_enable(GPIO_NUM_2, GPIO_INTR_HIGH_LEVEL);
     esp_sleep_enable_gpio_wakeup();
     delay(500);
@@ -164,15 +173,15 @@ void loop()
     esp_light_sleep_start();
     
     gpio_wakeup_disable(GPIO_NUM_2);
-    home = true;
-    menu = false;
-    power = false;
+    HOME = true;
+    MENU = false;
+    POWER = false;
     initBLE();
     attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, FALLING);
   }
-  else if(home)
+  else if(HOME)
   {
-    Serial.println("Home Screen");
+    Serial.println("HOME Screen");
     if(data_index > 0)
       Serial.printf("Recent Value: %s\n", data[data_index-1]);
     delay(500);

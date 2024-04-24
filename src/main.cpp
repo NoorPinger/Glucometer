@@ -11,6 +11,8 @@
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define PB1 D2
 #define POWER_BUTTON D0
+#define MAX_DATA 5
+#define MAX_DATA_LEN 10
 
 /*
   Flags
@@ -24,16 +26,16 @@ bool POWER = false;
 /*
   Array to store the data
 */
-char data[5][10];
+char data[MAX_DATA][MAX_DATA_LEN];
 int data_index = 0;
 
 
 // This function initializes the array with '-' so we have a way to check if data exists or not
 void initCharArray()
 {
-  for(int i = 0; i < 5; i++)
+  for(int i = 0; i < MAX_DATA; i++)
   {
-    for(int j = 0; j < 10; j++)
+    for(int j = 0; j < MAX_DATA_LEN; j++)
     {
       data[i][j] = '-';
     }
@@ -41,29 +43,36 @@ void initCharArray()
 
 }
 
+// This function shifts the array to the left by 1 (simple bubble sort)
 void shiftArray()
 {
-  for(int i = 0; i < 4; i++)
+  for(int i = 0; i < MAX_DATA-1; i++)
   {
-    for(int j = 0; j < 10; j++)
+    for(int j = 0; j < MAX_DATA_LEN; j++)
     {
       data[i][j] = data[i+1][j];
     }
   }
   for(int j = 0; j < 10; j++)
   {
-    data[4][j] = '-';
+    data[MAX_DATA-1][j] = '-';
   }
 
 }
 
+/*
+  This class is used to handle the BLE characteristics
+  It saves the data to the array
+
+  TODO: Add code for time-stamps
+*/
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
       std::string value = pCharacteristic->getValue();
-      if(data_index == 5)
+      if(data_index == MAX_DATA)
       {
         shiftArray();
-        data_index = 4;
+        data_index = MAX_DATA-1;
       }
 
 
@@ -102,7 +111,7 @@ void initBLE()
 
   pCharacteristic->setCallbacks(new MyCallbacks());
 
-  pCharacteristic->setValue("Hello World");
+  pCharacteristic->setValue("Milligrams per deciliter (mg/dL)");
   pService->start();
 
   BLEAdvertising *pAdvertising = pServer->getAdvertising();
@@ -183,7 +192,16 @@ void loop()
   {
     Serial.println("HOME Screen");
     if(data_index > 0)
-      Serial.printf("Recent Value: %s\n", data[data_index-1]);
+    {
+      Serial.print("Recent Value: ");
+      for(int i = 0; i < MAX_DATA_LEN; i++)
+      {
+        if(data[data_index-1][i] != '-')
+          Serial.print(data[data_index-1][i]);
+      }
+      Serial.println();
+
+    }
     delay(500);
   }
 }

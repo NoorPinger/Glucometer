@@ -9,7 +9,7 @@
 
 #define SERVICE_UUID        "4fafc101-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define PB1 D2
+#define MENU_BUTTON D2
 #define POWER_BUTTON D0
 #define MAX_DATA 5
 #define MAX_DATA_LEN 10
@@ -84,11 +84,24 @@ class MyCallbacks: public BLECharacteristicCallbacks {
     }
 };
 
-void pb1pressed() {
+/*
+  This function is called when the menu button is pressed
+  It toggles the MENU flag
+  This allows us to use only one button to go to the menu and back to the home screen
+*/
+void menuPressed() {
   MENU ^= true;
   HOME = !MENU;
 }
 
+
+/*
+  This function is called when the power button is pressed
+  It sets the toggle flag
+  We want to use the same button to power on so for that we have to implement debouncing
+  This is done by detaching the interrupt and re-attaching it after a delay (in loop)
+  All other flags are set to false
+*/
 void powerPressed() {
   detachInterrupt(digitalPinToInterrupt(POWER_BUTTON));
   POWER = true;
@@ -96,6 +109,11 @@ void powerPressed() {
   HOME = false;
 }
 
+/*
+  This function initializes the BLE server
+  It sets the service and characteristic UUIDs
+  It also sets the value of the characteristic
+*/
 void initBLE()
 {
   BLEDevice::init("Glucometer");
@@ -117,29 +135,42 @@ void initBLE()
   BLEAdvertising *pAdvertising = pServer->getAdvertising();
   pAdvertising->start();
 }
+
 void setup() {
+  /*
+    Fresh start is used to initialize the array only once
+  */
   if(FRESH_START)
   {
     initCharArray();
     FRESH_START = false;
   }
-  pinMode(PB1, INPUT_PULLUP);
+
+  /*
+    Setting up the buttons
+    Used pull-down for power as it was working better
+  */
+  pinMode(MENU_BUTTON, INPUT_PULLUP);
   pinMode(POWER_BUTTON, INPUT_PULLDOWN);
 
-  attachInterrupt(digitalPinToInterrupt(PB1), pb1pressed, FALLING);
+  /*
+    Attaching the interrupts
+  */
+  attachInterrupt(digitalPinToInterrupt(MENU_BUTTON), menuPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, RISING);
-  Serial.begin(115200);
 
+  Serial.begin(115200);
   initBLE();
 }
 
+/*
+  This function is called when the MENU flag is set in the interrupt, it prints the contents of the array
+*/
 void printContents()
 {
   uint8_t i,j = 0;
   for(int i = 0; i < 5; i++)
   {
-    // if(data[i][j] != '-')
-    // {
       Serial.printf("[%d]: ", i+1);
       for(j = 0; j < 10; j++)
       {
@@ -147,10 +178,13 @@ void printContents()
           Serial.print(data[i][j]);
       }
       Serial.println();
-    // }
   }
 }
 
+
+/*
+  Debug, was used to confirm contents of the array
+*/
 void printArray()
 {
   for(int i = 0; i < 5; i++)

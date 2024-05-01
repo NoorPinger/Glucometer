@@ -13,19 +13,24 @@
 
 #define SERVICE_UUID        "b7ff2233-3c43-44da-ac1d-fa3075fa3ebc"
 #define CHARACTERISTIC_UUID "499d1e04-4a8b-4767-abe9-1bab1a5f4353"
-#define MENU_BUTTON D2
+#define MENU_BUTTON D1
 #define POWER_BUTTON D0
-#define MENU_SELECT D0
-#define MENU_UP D3
-#define MENU_DOWN D1
-#define MAX_DATA 4
+#define MENU_SELECT D4
+#define MENU_UP D2
+#define MENU_DOWN D3
+#define MAX_DATA 5
 #define MAX_DATA_LEN 5
 
+typedef struct {
+  uint8_t hours;
+  uint8_t minutes;
+} time_stamps;
 
+time_stamps time_stamps_array[MAX_DATA];
 struct timeval start, now;
 long seconds;
 long seconds_offset = 0;
-volatile unsigned long last_interrupt_time_up, last_interrupt_time_down, last_interrupt_time_select = 0;
+volatile unsigned long last_interrupt_time_up, last_interrupt_time_down, last_interrupt_time_select, last_interrupt_time_menu = 0;
 LiquidCrystal_I2C lcd(0x27, 16, 2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 /*
@@ -41,6 +46,8 @@ bool setTime = false;
 bool MENU_FIRST = false;
 bool SELECT = false;
 bool DISPLAY_DATA = false;
+bool MENU_SCROLL = false;
+bool DISPLAY_SCROLL = false;
 
 /*
   Array to store the data
@@ -48,6 +55,7 @@ bool DISPLAY_DATA = false;
 char data[MAX_DATA][MAX_DATA_LEN];
 int data_index = 0;
 int8_t menu_index = 0;
+int16_t saved_data_index = 0;
 uint8_t menu_debounce_up, menu_debounce_down = 0;
 
 char str[5];
@@ -58,8 +66,11 @@ uint16_t  minCount = 0;
 // This function initializes the array with '-' so we have a way to check if data exists or not
 void initCharArray()
 {
+  data_index = 0;
   for(int i = 0; i < MAX_DATA; i++)
   {
+    time_stamps_array[i].hours = '-';
+    time_stamps_array[i].minutes = '-';
     for(int j = 0; j < MAX_DATA_LEN; j++)
     {
       data[i][j] = '-';
@@ -77,11 +88,15 @@ void shiftArray()
     {
       data[i][j] = data[i+1][j];
     }
+    time_stamps_array[i].hours = time_stamps_array[i+1].hours;
+    time_stamps_array[i].minutes = time_stamps_array[i+1].minutes;
   }
   for(int j = 0; j < MAX_DATA; j++)
   {
     data[MAX_DATA-1][j] = '-';
   }
+  time_stamps_array[MAX_DATA-1].hours = '-';
+  time_stamps_array[MAX_DATA-1].minutes = '-';
 
 }
 
@@ -117,6 +132,8 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         if (value.length() > 0 && value.length() <= MAX_DATA_LEN) {
           for (int i = 0; i < value.length(); i++)
             data[data_index][i] = value[i];
+          time_stamps_array[data_index].hours = hrCount;
+          time_stamps_array[data_index].minutes = minCount;
           data_index++;
         }
         else
@@ -133,17 +150,20 @@ class MyCallbacks: public BLECharacteristicCallbacks {
   This allows us to use only one button to go to the menu and back to the home screen
 */
 void menuPressed() {
-  menu_index = 0;
-  MENU_FIRST = true;
-  MENU ^= true;
-  HOME = !MENU;
+  unsigned long interrupt_time_menu = millis();
+  if(interrupt_time_menu - last_interrupt_time_menu > 200)
+  {
+    DISPLAY_DATA = false;
+    MENU_SCROLL = true;
+    menu_index = 0;
+    MENU_FIRST = true;
+    MENU ^= true;
+    HOME = !MENU;
+  }
+  last_interrupt_time_menu = interrupt_time_menu;
 }
 
 
-void d4Pressed()
-{
-  setTime = true;
-}
 
 void selectPressed()
 {
@@ -159,14 +179,29 @@ void menuUpPressed()
 {
   // detachInterrupt(digitalPinToInterrupt(MENU_UP));
   unsigned long interrupt_time_up = millis();
-  if(interrupt_time_up - last_interrupt_time_up > 200)
+  if(MENU_SCROLL)
   {
-    menu_index++;
-    if(menu_index > 2)
+    if(interrupt_time_up - last_interrupt_time_up > 200)
     {
-      menu_index = 0;
+      menu_index++;
+      if(menu_index > 3)
+      {
+        menu_index = 0;
+      }
     }
   }
+  else if(DISPLAY_SCROLL)
+  {
+    if(interrupt_time_up - last_interrupt_time_up > 200)
+    {
+      saved_data_index++;
+      if(saved_data_index > MAX_DATA-1)
+      {
+        saved_data_index = 0;
+      }
+    }
+  }
+
   last_interrupt_time_up = interrupt_time_up;
   // delay(10);
 }
@@ -175,14 +210,36 @@ void menuDownPressed()
 {
   // detachInterrupt(digitalPinToInterrupt(MENU_DOWN));
   unsigned long interrupt_time_down = millis();
-  if(interrupt_time_down - last_interrupt_time_down > 200)
+  if(MENU_SCROLL)
   {
-    menu_index--;
-    if(menu_index < 0)
+    if(interrupt_time_down - last_interrupt_time_down > 200)
     {
-      menu_index = 2;
+      menu_index--;
+      if(menu_index < 0)
+      {
+        menu_index = 3;
+      }
     }
   }
+  else if(DISPLAY_SCROLL)
+  {
+    if(interrupt_time_down - last_interrupt_time_down > 200)
+    {
+      saved_data_index--;
+      if(saved_data_index < 0)
+      {
+        saved_data_index = MAX_DATA-1;
+      }
+    }
+  }
+  // if(interrupt_time_down - last_interrupt_time_down > 200)
+  // {
+  //   menu_index--;
+  //   if(menu_index < 0)
+  //   {
+  //     menu_index = 2;
+  //   }
+  // }
   last_interrupt_time_down = interrupt_time_down;
   // delay(10);
 }
@@ -209,7 +266,7 @@ void powerPressed() {
 */
 void initBLE()
 {
-  BLEDevice::init("Glucometer");
+  BLEDevice::init("UTA Glucometer");
   BLEServer *pServer = BLEDevice::createServer();
 
   BLEService *pService = pServer->createService(SERVICE_UUID);
@@ -239,7 +296,20 @@ void setup() {
   if(FRESH_START)
   {
     initCharArray();
+    lcd.setCursor(0, 0);
+    lcd.print("UTA Glucometer");
+    lcd.setCursor(0, 1);
+    lcd.backlight();
+    lcd.print("Powering On");
+    delay(500);
+    lcd.print(".");
+    delay(1000);
+    lcd.print(".");
+    delay(1000);
+    lcd.print(".");
+    lcd.clear();
     FRESH_START = false;
+
   }
 
   /*
@@ -258,7 +328,7 @@ void setup() {
   */
   attachInterrupt(digitalPinToInterrupt(MENU_BUTTON), menuPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, RISING);
-  // attachInterrupt(digitalPinToInterrupt(D4), d4Pressed, FALLING);
+  attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(MENU_UP), menuUpPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(MENU_DOWN), menuDownPressed, FALLING);
 
@@ -315,6 +385,8 @@ void wakeupHandler()
   MENU = false;
   POWER = false;
   lcd.setCursor(0, 0);
+  lcd.print("UTA Glucometer");
+  lcd.setCursor(0, 1);
   lcd.backlight();
   lcd.print("Powering On");
   delay(500);
@@ -348,33 +420,40 @@ void printArray()
 
 void menuScreen()
 {
-  detachInterrupt(digitalPinToInterrupt(POWER_BUTTON));
-  attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
-  // delay(100);
-  // attachInterrupt(digitalPinToInterrupt(MENU_UP), menuUpPressed, FALLING);
-  // attachInterrupt(digitalPinToInterrupt(MENU_DOWN), menuDownPressed, FALLING);
+  // detachInterrupt(digitalPinToInterrupt(POWER_BUTTON));
+  // attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
   if(MENU_FIRST)
   {
     lcd.clear();
     MENU_FIRST = false;
   }
-  // lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Main Menu");
   lcd.setCursor(0, 1);
   switch(menu_index)
   {
     case 0:
-      if(seconds % 2 == 0)
-        lcd.print("1: View Data");
-      else
-        lcd.print("1:            ");
+      // if(seconds % 2 == 0)
+        lcd.print("1: View Data  ");
+      // else
+      //   lcd.print("1:            ");
+      if(SELECT)
+      {
+        saved_data_index = 0;
+        MENU_FIRST = true;
+        MENU_SCROLL = false;
+        DISPLAY_SCROLL = true;
+        MENU = false;
+        HOME = false;
+        DISPLAY_DATA = true;
+        SELECT = false;
+      }
       break;
     case 1:
-      if(seconds % 2 == 0)
-        lcd.print("2: Set Time ");
-      else
-        lcd.print("2:            ");
+      // if(seconds % 2 == 0)
+        lcd.print("2: Set Time   ");
+      // else
+      //   lcd.print("2:            ");
       if(SELECT)
       {
         MENU = false;
@@ -384,10 +463,23 @@ void menuScreen()
       }
       break;
     case 2:
-      if(seconds % 2 == 0)
-        lcd.print("3: Back     ");
-      else
-        lcd.print("3:            ");
+      // if(seconds % 2 == 0)
+        lcd.print("3: Clear Data");
+      // else
+      //   lcd.print("3:            ");
+      if(SELECT)
+      {
+        initCharArray();
+        MENU = false;
+        HOME = true;
+        SELECT = false;
+      }
+      break;
+    case 3: 
+      // if(seconds % 2 == 0)
+        lcd.print("4: Back       ");
+      // else
+      //   lcd.print("4:            ");
       if(SELECT)
       {
         MENU = false;
@@ -395,7 +487,69 @@ void menuScreen()
         SELECT = false;
       }
       break;
+
   }
+
+}
+
+void displaySavedData()
+{
+  if(MENU_FIRST)
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Saved");
+    MENU_FIRST = false;
+  }
+  lcd.setCursor(11, 0);
+  if(time_stamps_array[saved_data_index].hours == 0)
+    time_stamps_array[saved_data_index].hours  = 12;
+  if(time_stamps_array[saved_data_index].hours == '-')
+    lcd.print("--");
+  else if(time_stamps_array[saved_data_index].hours < 10)
+  {
+    lcd.print("0");
+    lcd.print(time_stamps_array[saved_data_index].hours);
+  }
+  else
+    lcd.print(time_stamps_array[saved_data_index].hours);
+  lcd.print(":");
+  if(time_stamps_array[saved_data_index].minutes == '-')
+    lcd.print("--");
+  else if(time_stamps_array[saved_data_index].minutes < 10)
+  {
+    lcd.print("0");
+    lcd.print(time_stamps_array[saved_data_index].minutes);
+  }
+  else
+    lcd.print(time_stamps_array[saved_data_index].minutes);
+
+  lcd.setCursor(0, 1);
+  lcd.printf("[%d]: ", saved_data_index+1);
+  for(int j = 0; j < MAX_DATA_LEN; j++)
+  {
+    if(data[saved_data_index][j] != '-')
+    {
+      lcd.write(data[saved_data_index][j]);
+    }
+    else
+      lcd.print(" ");
+  }
+  
+  // for(int i = 0; i <= saved_data_index; i++)
+  // {
+  //   lcd.printf("[%d]: ", i+1);
+  //   for(int j = 0; j < MAX_DATA_LEN; j++)
+  //   {
+  //     if(data[i][j] != '-')
+  //     {
+  //       lcd.write(data[i][j]);
+  //     }
+  //     else
+  //       break;
+  //   }
+  //   lcd.print(" mg/dL");
+  // }
 
 }
 
@@ -441,8 +595,8 @@ void loop()
   }
   else if(HOME)
   {
-    detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
-    attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, FALLING);
+    // detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
+    // attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, FALLING);
     if(MENU_FIRST)
     {
       lcd.clear();
@@ -492,7 +646,7 @@ void loop()
         lcd.setCursor(0, 0);
         lcd.print("Waiting    ");
         lcd.setCursor(0, 1);
-        lcd.print("       ");
+        lcd.print("           ");
       }
     }
   }
@@ -507,5 +661,9 @@ void loop()
       lcd.print("HH:MM");
       MENU_FIRST = false;
     }
+  }
+  else if(DISPLAY_DATA)
+  {
+    displaySavedData();
   }
 }

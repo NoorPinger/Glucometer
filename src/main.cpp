@@ -28,6 +28,7 @@ typedef struct {
 
 time_stamps time_stamps_array[MAX_DATA];
 struct timeval start, now;
+hw_timer_t * timer = NULL;
 long seconds;
 long seconds_offset = 0;
 volatile unsigned long last_interrupt_time_up, last_interrupt_time_down, last_interrupt_time_select, last_interrupt_time_menu = 0;
@@ -48,6 +49,8 @@ bool SELECT = false;
 bool DISPLAY_DATA = false;
 bool MENU_SCROLL = false;
 bool DISPLAY_SCROLL = false;
+bool TIMEOUT = false;
+bool TIMEOUT_WAKEUP = true;
 
 /*
   Array to store the data
@@ -144,29 +147,11 @@ class MyCallbacks: public BLECharacteristicCallbacks {
     }
 };
 
-/*
-  This function is called when the menu button is pressed
-  It toggles the MENU flag
-  This allows us to use only one button to go to the menu and back to the home screen
-*/
-void menuPressed() {
-  unsigned long interrupt_time_menu = millis();
-  if(interrupt_time_menu - last_interrupt_time_menu > 200)
-  {
-    DISPLAY_DATA = false;
-    MENU_SCROLL = true;
-    menu_index = 0;
-    MENU_FIRST = true;
-    MENU ^= true;
-    HOME = !MENU;
-  }
-  last_interrupt_time_menu = interrupt_time_menu;
-}
-
-
-
 void selectPressed()
 {
+  TIMEOUT = false;
+  TIMEOUT_WAKEUP = true;
+  timerWrite(timer, 0);
   unsigned long interrupt_time_select = millis();
   if(interrupt_time_select - last_interrupt_time_select > 200)
   {
@@ -174,9 +159,45 @@ void selectPressed()
   }
   last_interrupt_time_select = interrupt_time_select;
 }
+/*
+  This function is called when the menu button is pressed
+  It toggles the MENU flag
+  This allows us to use only one button to go to the menu and back to the home screen
+*/
+void menuPressed() 
+{
+  TIMEOUT = false;
+  TIMEOUT_WAKEUP = true;
+  timerWrite(timer, 0);
+  unsigned long interrupt_time_menu = millis();
+  if(interrupt_time_menu - last_interrupt_time_menu > 200)
+  {
+    setTime = false;
+    DISPLAY_DATA = false;
+    MENU_SCROLL = true;
+    menu_index = 0;
+    MENU_FIRST = true;
+    MENU ^= true;
+    HOME = !MENU;
+
+    // if(HOME || DISPLAY_DATA)
+    // {
+    //   detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
+    // }
+    // else
+    //   attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
+  }
+  last_interrupt_time_menu = interrupt_time_menu;
+}
+
+
+
 
 void menuUpPressed()
 {
+  TIMEOUT = false;
+  TIMEOUT_WAKEUP = true;
+  timerWrite(timer, 0);
   // detachInterrupt(digitalPinToInterrupt(MENU_UP));
   unsigned long interrupt_time_up = millis();
   if(MENU_SCROLL)
@@ -208,6 +229,9 @@ void menuUpPressed()
 
 void menuDownPressed()
 {
+  TIMEOUT = false;
+  TIMEOUT_WAKEUP = true;
+  timerWrite(timer, 0);
   // detachInterrupt(digitalPinToInterrupt(MENU_DOWN));
   unsigned long interrupt_time_down = millis();
   if(MENU_SCROLL)
@@ -252,7 +276,11 @@ void menuDownPressed()
   This is done by detaching the interrupt and re-attaching it after a delay (in loop)
   All other flags are set to false
 */
-void powerPressed() {
+void powerPressed() 
+{
+  TIMEOUT = false;
+  TIMEOUT_WAKEUP = true;
+  timerWrite(timer, 0);
   detachInterrupt(digitalPinToInterrupt(POWER_BUTTON));
   POWER = true;
   MENU = false;
@@ -286,7 +314,16 @@ void initBLE()
   pAdvertising->start();
 }
 
+void timerIsr()
+{
+  TIMEOUT = true;
+  TIMEOUT_WAKEUP = false;
+}
+
 void setup() {
+  timer = timerBegin(0, 80, true);
+  timerAttachInterrupt(timer, &timerIsr, true);
+  timerAlarmWrite(timer, 30000000, true);
   gettimeofday(&start, NULL);
   lcd.init();                      // initialize the lcd 
   lcd.backlight();
@@ -328,13 +365,14 @@ void setup() {
   */
   attachInterrupt(digitalPinToInterrupt(MENU_BUTTON), menuPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, RISING);
-  attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
+  // attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(MENU_UP), menuUpPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(MENU_DOWN), menuDownPressed, FALLING);
 
 
   Serial.begin(115200);
   initBLE();
+  timerAlarmEnable(timer);
 }
 
 /*
@@ -421,7 +459,7 @@ void printArray()
 void menuScreen()
 {
   // detachInterrupt(digitalPinToInterrupt(POWER_BUTTON));
-  // attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
+  attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
   if(MENU_FIRST)
   {
     lcd.clear();
@@ -496,6 +534,7 @@ void displaySavedData()
 {
   if(MENU_FIRST)
   {
+    detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Saved");
@@ -580,6 +619,17 @@ void loop()
     hrCount = 0;
     minCount = 0;
   }
+  if (TIMEOUT)
+  {
+    lcd.noDisplay();
+    lcd.noBacklight();
+  }
+  else if(TIMEOUT_WAKEUP)
+  {
+    lcd.display();
+    lcd.backlight();
+  }
+
   if(MENU)
   {
     menuScreen();
@@ -595,10 +645,11 @@ void loop()
   }
   else if(HOME)
   {
-    // detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
+
     // attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, FALLING);
     if(MENU_FIRST)
     {
+      detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
       lcd.clear();
       MENU_FIRST = false;
     }
@@ -654,6 +705,7 @@ void loop()
   {
     if(MENU_FIRST)
     {
+      detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("Enter Time:");

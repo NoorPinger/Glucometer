@@ -20,6 +20,7 @@
 #define MENU_DOWN D3
 #define MAX_DATA 5
 #define MAX_DATA_LEN 5
+#define TIMEOUT_SECONDS 30
 
 typedef struct {
   uint8_t hours;
@@ -153,10 +154,17 @@ void selectPressed()
   TIMEOUT_WAKEUP = true;
   timerWrite(timer, 0);
   unsigned long interrupt_time_select = millis();
-  if(interrupt_time_select - last_interrupt_time_select > 200)
+  if(MENU)            
   {
-    SELECT = true;
+    if(interrupt_time_select - last_interrupt_time_select > 200)
+    {
+      SELECT = true;
+    }
   }
+  // else
+  // {
+  //   SELECT = false;
+  // }
   last_interrupt_time_select = interrupt_time_select;
 }
 /*
@@ -323,7 +331,7 @@ void timerIsr()
 void setup() {
   timer = timerBegin(0, 80, true);
   timerAttachInterrupt(timer, &timerIsr, true);
-  timerAlarmWrite(timer, 10000000, true);
+  timerAlarmWrite(timer, TIMEOUT_SECONDS * 1000000, true);
   gettimeofday(&start, NULL);
   lcd.init();                      // initialize the lcd 
   lcd.backlight();
@@ -365,7 +373,7 @@ void setup() {
   */
   attachInterrupt(digitalPinToInterrupt(MENU_BUTTON), menuPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, RISING);
-  // attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
+  attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(MENU_UP), menuUpPressed, FALLING);
   attachInterrupt(digitalPinToInterrupt(MENU_DOWN), menuDownPressed, FALLING);
 
@@ -459,7 +467,7 @@ void printArray()
 void menuScreen()
 {
   // detachInterrupt(digitalPinToInterrupt(POWER_BUTTON));
-  attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
+  // attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
   if(MENU_FIRST)
   {
     lcd.clear();
@@ -534,7 +542,7 @@ void displaySavedData()
 {
   if(MENU_FIRST)
   {
-    detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
+    // detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Saved");
@@ -647,7 +655,7 @@ void loop()
   {
     if(MENU_FIRST)
     {
-      detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
+      // detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
       lcd.clear();
       MENU_FIRST = false;
     }
@@ -703,7 +711,7 @@ void loop()
   {
     if(MENU_FIRST)
     {
-      detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
+      // detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("Enter Time:");

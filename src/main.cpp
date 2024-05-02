@@ -107,12 +107,13 @@ void shiftArray()
 /*
   This class is used to handle the BLE characteristics
   It saves the data to the array
-
-  TODO: Add code for time-stamps
 */
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
       std::string value = pCharacteristic->getValue();
+      TIMEOUT = false;
+      TIMEOUT_WAKEUP = true;
+      timerWrite(timer, 0);
       if(setTime)
       {
         if(value.length() > 0)
@@ -161,10 +162,6 @@ void selectPressed()
       SELECT = true;
     }
   }
-  // else
-  // {
-  //   SELECT = false;
-  // }
   last_interrupt_time_select = interrupt_time_select;
 }
 /*
@@ -187,13 +184,6 @@ void menuPressed()
     MENU_FIRST = true;
     MENU ^= true;
     HOME = !MENU;
-
-    // if(HOME || DISPLAY_DATA)
-    // {
-    //   detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
-    // }
-    // else
-    //   attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
   }
   last_interrupt_time_menu = interrupt_time_menu;
 }
@@ -206,7 +196,6 @@ void menuUpPressed()
   TIMEOUT = false;
   TIMEOUT_WAKEUP = true;
   timerWrite(timer, 0);
-  // detachInterrupt(digitalPinToInterrupt(MENU_UP));
   unsigned long interrupt_time_up = millis();
   if(MENU_SCROLL)
   {
@@ -232,7 +221,6 @@ void menuUpPressed()
   }
 
   last_interrupt_time_up = interrupt_time_up;
-  // delay(10);
 }
 
 void menuDownPressed()
@@ -240,7 +228,6 @@ void menuDownPressed()
   TIMEOUT = false;
   TIMEOUT_WAKEUP = true;
   timerWrite(timer, 0);
-  // detachInterrupt(digitalPinToInterrupt(MENU_DOWN));
   unsigned long interrupt_time_down = millis();
   if(MENU_SCROLL)
   {
@@ -264,16 +251,7 @@ void menuDownPressed()
       }
     }
   }
-  // if(interrupt_time_down - last_interrupt_time_down > 200)
-  // {
-  //   menu_index--;
-  //   if(menu_index < 0)
-  //   {
-  //     menu_index = 2;
-  //   }
-  // }
   last_interrupt_time_down = interrupt_time_down;
-  // delay(10);
 }
 
 
@@ -328,6 +306,36 @@ void timerIsr()
   TIMEOUT_WAKEUP = false;
 }
 
+void displayStartScreen()
+{
+  lcd.setCursor(0, 0);
+    lcd.print("UTA Glucometer");
+    lcd.setCursor(0, 1);
+    lcd.backlight();
+    lcd.print("Powering On");
+    delay(500);
+    lcd.print(".");
+    delay(1000);
+    lcd.print(".");
+    delay(1000);
+    lcd.print(".");
+    lcd.clear();
+}
+
+void displayShutdownScreen()
+{
+  lcd.setCursor(0, 0);
+  lcd.print("Powering Off");
+  delay(500);
+  lcd.print(".");
+  delay(1000);
+  lcd.print(".");
+  delay(1000);
+  lcd.print(".");
+  lcd.noDisplay();
+  lcd.noBacklight();
+}
+
 void setup() {
   timer = timerBegin(0, 80, true);
   timerAttachInterrupt(timer, &timerIsr, true);
@@ -341,20 +349,8 @@ void setup() {
   if(FRESH_START)
   {
     initCharArray();
-    lcd.setCursor(0, 0);
-    lcd.print("UTA Glucometer");
-    lcd.setCursor(0, 1);
-    lcd.backlight();
-    lcd.print("Powering On");
-    delay(500);
-    lcd.print(".");
-    delay(1000);
-    lcd.print(".");
-    delay(1000);
-    lcd.print(".");
-    lcd.clear();
+    displayStartScreen();
     FRESH_START = false;
-
   }
 
   /*
@@ -363,7 +359,6 @@ void setup() {
   */
   pinMode(MENU_BUTTON, INPUT_PULLUP);
   pinMode(POWER_BUTTON, INPUT_PULLDOWN);
-  // pinMode(D4, INPUT_PULLUP);
   pinMode(MENU_UP, INPUT_PULLUP);
   pinMode(MENU_DOWN, INPUT_PULLUP);
 
@@ -383,42 +378,14 @@ void setup() {
   timerAlarmEnable(timer);
 }
 
-/*
-  This function is called when the MENU flag is set in the interrupt, it prints the contents of the array
-*/
-void printContents()
-{
-  uint8_t i,j = 0;
-  for(int i = 0; i < MAX_DATA; i++)
-  {
-      //Serial.printf("[%d]: ", i+1);
-      for(j = 0; j < MAX_DATA_LEN; j++)
-      {
-        if(data[i][j] != '-');
-          //Serial.print(data[i][j]);
-      }
-      //Serial.println();
-  }
-}
-
 void sleepHandler()
 {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Powering Off");
-  //Serial.println("Powering Off");
-  delay(500);
-  lcd.print(".");
-  delay(1000);
-  lcd.print(".");
-  delay(1000);
-  lcd.print(".");
-  lcd.noDisplay();
-  lcd.noBacklight();
+  displayShutdownScreen();
   gpio_wakeup_enable(GPIO_NUM_2, GPIO_INTR_HIGH_LEVEL);
   esp_sleep_enable_gpio_wakeup();
   delay(500);
-  //Serial.flush();
   esp_light_sleep_start();
 }
 
@@ -430,44 +397,15 @@ void wakeupHandler()
   HOME = true;
   MENU = false;
   POWER = false;
-  lcd.setCursor(0, 0);
-  lcd.print("UTA Glucometer");
-  lcd.setCursor(0, 1);
-  lcd.backlight();
-  lcd.print("Powering On");
-  delay(500);
-  lcd.print(".");
-  delay(1000);
-  lcd.print(".");
-  delay(1000);
-  lcd.print(".");
-  lcd.clear();
-  // lcd.noBacklight();
+  displayStartScreen();
   initBLE();
   attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, FALLING);
 }
 
 
-/*
-  Debug, was used to confirm contents of the array
-*/
-void printArray()
-{
-  for(int i = 0; i < MAX_DATA; i++)
-  {
-    for(int j = 0; j < MAX_DATA_LEN; j++)
-    {
-      //Serial.printf("[%d][%d] %c\t",i,j,data[i][j]);
-    }
-    //Serial.println();
-  }
-
-}
 
 void menuScreen()
 {
-  // detachInterrupt(digitalPinToInterrupt(POWER_BUTTON));
-  // attachInterrupt(digitalPinToInterrupt(MENU_SELECT), selectPressed, FALLING);
   if(MENU_FIRST)
   {
     lcd.clear();
@@ -479,10 +417,7 @@ void menuScreen()
   switch(menu_index)
   {
     case 0:
-      // if(seconds % 2 == 0)
-        lcd.print("1: View Data  ");
-      // else
-      //   lcd.print("1:            ");
+      lcd.print("1: View Data  ");
       if(SELECT)
       {
         saved_data_index = 0;
@@ -496,10 +431,7 @@ void menuScreen()
       }
       break;
     case 1:
-      // if(seconds % 2 == 0)
-        lcd.print("2: Set Time   ");
-      // else
-      //   lcd.print("2:            ");
+      lcd.print("2: Set Time   ");
       if(SELECT)
       {
         MENU = false;
@@ -509,10 +441,7 @@ void menuScreen()
       }
       break;
     case 2:
-      // if(seconds % 2 == 0)
-        lcd.print("3: Clear Data");
-      // else
-      //   lcd.print("3:            ");
+      lcd.print("3: Clear Data");
       if(SELECT)
       {
         initCharArray();
@@ -522,10 +451,7 @@ void menuScreen()
       }
       break;
     case 3: 
-      // if(seconds % 2 == 0)
-        lcd.print("4: Back       ");
-      // else
-      //   lcd.print("4:            ");
+      lcd.print("4: Back       ");
       if(SELECT)
       {
         MENU = false;
@@ -542,7 +468,6 @@ void displaySavedData()
 {
   if(MENU_FIRST)
   {
-    // detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Saved");
@@ -582,22 +507,6 @@ void displaySavedData()
     else
       lcd.print(" ");
   }
-  
-  // for(int i = 0; i <= saved_data_index; i++)
-  // {
-  //   lcd.printf("[%d]: ", i+1);
-  //   for(int j = 0; j < MAX_DATA_LEN; j++)
-  //   {
-  //     if(data[i][j] != '-')
-  //     {
-  //       lcd.write(data[i][j]);
-  //     }
-  //     else
-  //       break;
-  //   }
-  //   lcd.print(" mg/dL");
-  // }
-
 }
 
 
@@ -629,12 +538,10 @@ void loop()
   }
   if (TIMEOUT)
   {
-    // lcd.noDisplay();
     lcd.noBacklight();
   }
   else if(TIMEOUT_WAKEUP)
   {
-    // lcd.display();
     lcd.backlight();
   }
 
@@ -643,8 +550,6 @@ void loop()
     menuScreen();
     Serial.println("seconds: " + String(seconds));
     Serial.printf("hrCount: %d, minCount: %d\n", hrCount, minCount);
-    // printContents();
-    // delay(500);
   }
   else if(POWER)
   {
@@ -655,7 +560,6 @@ void loop()
   {
     if(MENU_FIRST)
     {
-      // detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
       lcd.clear();
       MENU_FIRST = false;
     }
@@ -696,7 +600,6 @@ void loop()
           }
         }
         lcd.print(" mg/dL  ");
-
       }
       else
       {
@@ -711,7 +614,6 @@ void loop()
   {
     if(MENU_FIRST)
     {
-      // detachInterrupt(digitalPinToInterrupt(MENU_SELECT));
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("Enter Time:");

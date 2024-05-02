@@ -323,7 +323,7 @@ void timerIsr()
 void setup() {
   timer = timerBegin(0, 80, true);
   timerAttachInterrupt(timer, &timerIsr, true);
-  timerAlarmWrite(timer, 30000000, true);
+  timerAlarmWrite(timer, 10000000, true);
   gettimeofday(&start, NULL);
   lcd.init();                      // initialize the lcd 
   lcd.backlight();
@@ -621,12 +621,12 @@ void loop()
   }
   if (TIMEOUT)
   {
-    lcd.noDisplay();
+    // lcd.noDisplay();
     lcd.noBacklight();
   }
   else if(TIMEOUT_WAKEUP)
   {
-    lcd.display();
+    // lcd.display();
     lcd.backlight();
   }
 
@@ -645,8 +645,6 @@ void loop()
   }
   else if(HOME)
   {
-
-    // attachInterrupt(digitalPinToInterrupt(POWER_BUTTON), powerPressed, FALLING);
     if(MENU_FIRST)
     {
       detachInterrupt(digitalPinToInterrupt(MENU_SELECT));

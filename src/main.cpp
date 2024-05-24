@@ -13,6 +13,7 @@
 
 #define SERVICE_UUID        "b7ff2233-3c43-44da-ac1d-fa3075fa3ebc"
 #define CHARACTERISTIC_UUID "499d1e04-4a8b-4767-abe9-1bab1a5f4353"
+
 #define MENU_BUTTON D1
 #define POWER_BUTTON D0
 #define MENU_SELECT D4
@@ -22,49 +23,59 @@
 #define MAX_DATA_LEN 5
 #define TIMEOUT_SECONDS 30
 
+/*
+  Struct to store the time stamps
+*/
 typedef struct {
   uint8_t hours;
   uint8_t minutes;
 } time_stamps;
 
 time_stamps time_stamps_array[MAX_DATA];
+
 struct timeval start, now;
-hw_timer_t * timer = NULL;
-long seconds;
-long seconds_offset = 0;
+struct timeval epoch = {0, 0};
+
+
+char data[MAX_DATA][MAX_DATA_LEN];    // Array to store the data
+int data_index = 0;                   // Index to keep track of the data
+int8_t menu_index = 0;                // Index to control menu scrolling on the screen
+int16_t saved_data_index = 0;         // Index to control saved data scrolling on the screen
+uint16_t hrCount = 0;                 // Variable to store the hours elapsed
+uint16_t  minCount = 0;               // Variable to store the minutes elapsed
+hw_timer_t * timer = NULL;            // Timer used for screen timeout
+long seconds;                         // Variable to store the seconds elapsed
+long seconds_offset = 0;              // Variable to change the initial seconds once time is set by the user
+
+/*
+  used to debounce the buttons
+*/
 volatile unsigned long last_interrupt_time_up, last_interrupt_time_down, last_interrupt_time_select, last_interrupt_time_menu = 0;
+
+/*
+  LCD object
+*/
 LiquidCrystal_I2C lcd(0x27, 16, 2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 /*
   Flags
 */
-bool MENU = false;
-bool HOME = true;
-bool FRESH_START = true;
-bool SHIFT_FLAG = false;
-bool POWER = false;
-bool INVALID_DATA = false;
-bool setTime = false;
-bool MENU_FIRST = false;
-bool SELECT = false;
-bool DISPLAY_DATA = false;
-bool MENU_SCROLL = false;
-bool DISPLAY_SCROLL = false;
-bool TIMEOUT = false;
-bool TIMEOUT_WAKEUP = true;
+bool           MENU = false;              // Flag to display the menu
+bool           HOME =  true;              // Flag to display the home screen
+bool    FRESH_START =  true;              // Flag to initialize the array only once and display the start screen
+bool     SHIFT_FLAG = false;              // Flag to shift the array
+bool          POWER = false;              // Flag to power off the device
+bool   INVALID_DATA = false;              // Flag to display invalid data
+bool       SET_TIME = false;              // Flag to set the time
+bool     MENU_FIRST = false;              // Flag used to display unnecasry data only once
+                                          // example: text "Main Menu" needs to be displayed only once
+bool         SELECT = false;              // Flag to select the menu item
+bool   DISPLAY_DATA = false;              // Flag to display the saved data
+bool    MENU_SCROLL = false;              // Flag to scroll the menu
+bool DISPLAY_SCROLL = false;              // Flag to scroll the saved data
+bool        TIMEOUT = false;              // Flag to turn off the screen
+bool TIMEOUT_WAKEUP =  true;              // Flag to turn on the screen
 
-/*
-  Array to store the data
-*/
-char data[MAX_DATA][MAX_DATA_LEN];
-int data_index = 0;
-int8_t menu_index = 0;
-int16_t saved_data_index = 0;
-uint8_t menu_debounce_up, menu_debounce_down = 0;
-
-char str[5];
-uint16_t hrCount = 0;
-uint16_t  minCount = 0;
 
 
 // This function initializes the array with '-' so we have a way to check if data exists or not
@@ -99,6 +110,10 @@ void shiftArray()
   {
     data[MAX_DATA-1][j] = '-';
   }
+
+  /*
+    Setting the last element of the time stamps array to '-'
+  */
   time_stamps_array[MAX_DATA-1].hours = '-';
   time_stamps_array[MAX_DATA-1].minutes = '-';
 
@@ -111,29 +126,53 @@ void shiftArray()
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
       std::string value = pCharacteristic->getValue();
+
+      /*
+        Reset timeout timer
+      */
       TIMEOUT = false;
       TIMEOUT_WAKEUP = true;
       timerWrite(timer, 0);
-      if(setTime)
+
+      /*
+        If the user wants to set the time, then save the next BLE event as time
+        input must be in the format HH:MM
+      */
+      if(SET_TIME)
       {
-        if(value.length() > 0)
+        if((value.length() == 5) && (value[2] == ':'))
         {
           seconds_offset = (((int((value[0]))-48)*10 + (int((value[1]))-48)) * 3600) + (((int((value[3]))-48)*10 + (int((value[4])))-48) * 60);
           now.tv_sec = seconds_offset;
           gettimeofday(&start, NULL);
         }
-        setTime = false;
+        else
+        {
+          INVALID_DATA = true;
+        }
+        SET_TIME = false;
         HOME = true;
       }
       else
       {
+        /*
+          Else save the data to the array
+        */
+        
+        /*
+          If the array is full, then shift the array to the left by 1
+        */
         if(data_index == MAX_DATA)
         {
           shiftArray();
           data_index = MAX_DATA-1;
         }
 
-
+        /*
+          If the data is valid, then save it to the array
+          TODO: Add more validation checks like if data is only numbers or not
+          Also save the time stamps
+        */
         if (value.length() > 0 && value.length() <= MAX_DATA_LEN) {
           for (int i = 0; i < value.length(); i++)
             data[data_index][i] = value[i];
@@ -149,6 +188,12 @@ class MyCallbacks: public BLECharacteristicCallbacks {
     }
 };
 
+/*
+  This function is called when the select button is pressed
+  It sets the SELECT flag only when MENU flag is set
+  This allows us to use the menu
+  This button also resets the timeout timer
+*/
 void selectPressed()
 {
   TIMEOUT = false;
@@ -164,6 +209,7 @@ void selectPressed()
   }
   last_interrupt_time_select = interrupt_time_select;
 }
+
 /*
   This function is called when the menu button is pressed
   It toggles the MENU flag
@@ -177,7 +223,7 @@ void menuPressed()
   unsigned long interrupt_time_menu = millis();
   if(interrupt_time_menu - last_interrupt_time_menu > 200)
   {
-    setTime = false;
+    SET_TIME = false;
     DISPLAY_DATA = false;
     MENU_SCROLL = true;
     menu_index = 0;
@@ -436,7 +482,7 @@ void menuScreen()
       {
         MENU = false;
         MENU_FIRST = true;
-        setTime = true;
+        SET_TIME = true;
         SELECT = false;
       }
       break;
@@ -531,7 +577,9 @@ void loop()
   getTime();
   if(seconds >= 86400)
   {
-    start = now;
+    settimeofday(&epoch, NULL);
+    gettimeofday(&start, NULL);
+    // start = now;
     seconds_offset = 0;
     hrCount = 0;
     minCount = 0;
@@ -543,13 +591,12 @@ void loop()
   else if(TIMEOUT_WAKEUP)
   {
     lcd.backlight();
+    TIMEOUT_WAKEUP = false;
   }
 
   if(MENU)
   {
     menuScreen();
-    Serial.println("seconds: " + String(seconds));
-    Serial.printf("hrCount: %d, minCount: %d\n", hrCount, minCount);
   }
   else if(POWER)
   {
@@ -558,6 +605,8 @@ void loop()
   }
   else if(HOME)
   {
+    Serial.println("seconds: " + String(seconds));
+    Serial.printf("hrCount: %d, minCount: %d\n", hrCount, minCount);
     if(MENU_FIRST)
     {
       lcd.clear();
@@ -604,13 +653,13 @@ void loop()
       else
       {
         lcd.setCursor(0, 0);
-        lcd.print("Waiting    ");
+        lcd.print("Waiting     ");
         lcd.setCursor(0, 1);
         lcd.print("           ");
       }
     }
   }
-  else if(setTime)
+  else if(SET_TIME)
   {
     if(MENU_FIRST)
     {
